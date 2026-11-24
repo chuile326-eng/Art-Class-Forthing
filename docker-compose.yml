@@ -1,0 +1,132 @@
+# DrawPath AI — Docker Compose
+# ---------------------------------------------------------------------------
+# TRẠNG THÁI: file được tạo trong đợt viết tài liệu ngày 2026-11-24.
+# CHƯA TỪNG CHẠY THỬ — Docker không được cài trong VM viết tài liệu
+# (`docker: command not found`), nên không thể xác minh compose này chạy được.
+# Đừng ghi "compose chạy được" cho tới khi có lần `docker compose up --build`
+# thành công kèm log.
+#
+# LƯU Ý:
+# - backend/Dockerfile và frontend/Dockerfile là scaffolding tối thiểu
+#   (tạo cùng đợt này), chưa từng build thử.
+# - Backend trong compose trỏ DATABASE_URL sang Postgres, trong khi code
+#   backend mặc định SQLite (drawpath.db). Cần kiểm chứng app/database.py
+#   đọc DATABASE_URL đúng + bổ sung psycopg2 vào requirements.txt
+#   (hiện requirements.txt chưa có psycopg2/redis/celery) trước khi tin
+#   rằng backend kết nối được với service `db`.
+# - Frontend mặc định gọi http://localhost:8000/api/v1 trong khi backend
+#   mount router ở gốc (không có /api/v1) — xem API.md §3.1. Compose không
+#   sửa được lệch này; cần chốt prefix rồi sửa code.
+# - MinIO chỉ chạy khi dùng profile:  docker compose --profile minio up
+#   Code hiện tại chưa tích hợp S3/MinIO (upload lưu local ./uploads).
+# ---------------------------------------------------------------------------
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: drawpath-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-drawpath}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-drawpath}
+      POSTGRES_DB: ${POSTGRES_DB:-drawpath}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-drawpath} -d $${POSTGRES_DB:-drawpath}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: drawpath-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: drawpath-backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg2://drawpath:drawpath@db:5432/drawpath
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY:-change-me-to-a-long-random-string-in-production}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-10080}
+      UPLOAD_DIR: /app/uploads
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-10}
+      # AI providers — tất cả optional; để trống thì dùng local-CV + Pollinations.
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      HF_TOKEN: ${HF_TOKEN:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+    ports:
+      - "8000:8000"
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: drawpath-frontend
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000/api/v1}
+      NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-DrawPath AI}
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  # MinIO (S3-compatible) — OPTIONAL, chỉ chạy với --profile minio.
+  # Code hiện tại chưa tích hợp S3; service này để sẵn cho bước tích hợp sau.
+  minio:
+    image: minio/minio:latest
+    container_name: drawpath-minio
+    restart: unless-stopped
+    profiles: ["minio"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniadata:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:
+  redisdata:
+  uploads:
+  miniadata:
