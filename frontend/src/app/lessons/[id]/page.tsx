@@ -152,7 +152,11 @@ export default function LessonPage({ params }: { params: { id: string } }) {
       )}
       {lesson.commonMistakes?.length > 0 && (
         <section className="card mt-6" aria-labelledby="cm"><h2 id="cm" className="font-display text-xl font-bold">Lỗi thường gặp</h2>
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">{lesson.commonMistakes.map((m: string, i: number) => <li key={i}>{m}</li>)}</ul>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">{lesson.commonMistakes.map((m: any, i: number) => (
+            <li key={i}>
+              <strong>{typeof m === 'string' ? m : (m?.mistake || '')}</strong>
+              {typeof m === 'object' && m?.fix ? <span> — Cách sửa: {m.fix}</span> : null}
+            </li>))}</ul>
           {lesson.passCondition && <p className="mt-2 text-sm"><strong>Điều kiện đạt:</strong> {lesson.passCondition}</p>}</section>
       )}
 
