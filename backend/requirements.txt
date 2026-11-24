@@ -16,4 +16,6 @@ pytest==8.3.4
 httpx==0.28.1
 # opencv-python-headless is OPTIONAL: code falls back to numpy/PIL if absent
 # opencv-python-headless==4.10.0.84
-psycopg2-binary==2.9.10  # PostgreSQL driver for DATABASE_URL=postgresql://...
+# OPTIONAL — only if DATABASE_URL is PostgreSQL. On Windows it needs pg_config / a C toolchain,
+# and local dev uses SQLite by default, so it is NOT installed by default.
+# Uncomment to enable Postgres: psycopg2-binary==2.9.10
